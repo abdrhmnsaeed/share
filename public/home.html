@@ -31,29 +31,38 @@
       border: 1px solid #536471; background: #15202b; color: #e7e9ea; font-size: 1rem; margin: 0.35rem 0;
     }
     label { font-size: 0.85rem; color: #8b98a5; display: block; margin-top: 0.5rem; }
-    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .row button { flex: 1; min-width: 8rem; }
     #err { color: #f4212e; font-size: 0.9rem; margin-top: 0.5rem; }
     #iosHint { font-size: 0.85rem; color: #8b98a5; display: none; }
     #iosHint.show { display: block; }
+    .pc-only { display: block; }
+    .mobile-only { display: none; }
+    @media (max-width: 720px) {
+      .pc-only { display: none !important; }
+      .mobile-only { display: block !important; }
+    }
   </style>
 </head>
 <body>
   <h1>LAN Drop</h1>
-  <p class="muted">Create a room on one device, join from another. Install the app for quick access; the UI works offline after the first load, but transfers need your server online (hosted) or reachable on your network.</p>
+  <p class="muted">Works over the <strong>internet</strong> — devices don’t need the same Wi‑Fi. Create a room on your <strong>computer</strong>; everyone else opens the join link to upload, download, or copy text. Rooms and files are removed automatically after about <strong>1 hour</strong> (no database — storage is temporary files on the server).</p>
 
   <div class="box">
     <h2 style="margin-top:0">Install</h2>
-    <p class="muted" style="margin:0 0 0.75rem">Add to your home screen — opens like an app and caches this page for offline access.</p>
+    <p class="muted" style="margin:0 0 0.75rem">Add to home screen for quick access.</p>
     <button type="button" class="secondary hidden" id="installBtn">Install app</button>
     <p id="iosHint">On iPhone/iPad: Share → <strong>Add to Home Screen</strong>.</p>
   </div>
 
-  <div class="box">
-    <h2 style="margin-top:0">Create a room</h2>
-    <p class="muted" style="margin:0 0 0.75rem">You’ll get a QR code and a link to share.</p>
+  <div class="box pc-only">
+    <h2 style="margin-top:0">Create a room (PC)</h2>
+    <p class="muted" style="margin:0 0 0.75rem">Opens the host screen with QR and join link. Use the same site URL you deployed (set <code>PUBLIC_URL</code> on the server).</p>
     <button type="button" id="createBtn">Create room</button>
     <p id="err"></p>
+  </div>
+
+  <div class="box mobile-only">
+    <h2 style="margin-top:0">Create a room</h2>
+    <p class="muted" style="margin:0">To <strong>start</strong> a room, open this website on a <strong>computer</strong> and tap <strong>Create room</strong>. On this phone you can <strong>join</strong> with a link below.</p>
   </div>
 
   <div class="box">
@@ -61,13 +70,15 @@
     <label for="invite">Paste invite link</label>
     <input type="url" id="invite" placeholder="https://…/join/…?t=…" autocomplete="off" />
     <button type="button" class="secondary" id="joinLinkBtn" style="margin-top:0.75rem">Open link</button>
-    <label for="roomId">Or enter room ID + secret</label>
+    <label for="roomId">Or room ID + secret</label>
     <input type="text" id="roomId" placeholder="Room ID (8 characters)" maxlength="16" autocomplete="off" />
-    <input type="password" id="secret" placeholder="Secret (from host screen)" autocomplete="off" />
-    <button type="button" class="secondary" id="joinManualBtn" style="margin-top:0.75rem">Join with ID</button>
+    <input type="password" id="secret" placeholder="Secret (from host)" autocomplete="off" />
+    <button type="button" class="secondary" id="joinManualBtn" style="margin-top:0.75rem">Join</button>
   </div>
 
   <script>
+    const LS_CREATE = 'lanDropCreateToken';
+
     const errEl = document.getElementById('err');
     function clearErr() { errEl.textContent = ''; }
 
@@ -87,14 +98,32 @@
       }
     }
 
+    async function postCreateRoom() {
+      const headers = {};
+      const tok = localStorage.getItem(LS_CREATE);
+      if (tok) headers['X-Create-Token'] = tok;
+      let r = await fetch('/api/rooms', { method: 'POST', headers });
+      let j = await r.json().catch(() => ({}));
+      if (r.status === 401 && j.needToken) {
+        const p = window.prompt('Enter the server create password (CREATE_ROOM_SECRET). Leave empty if none.');
+        if (p === null) throw new Error('Cancelled');
+        if (p) {
+          localStorage.setItem(LS_CREATE, p);
+          headers['X-Create-Token'] = p;
+          r = await fetch('/api/rooms', { method: 'POST', headers });
+          j = await r.json().catch(() => ({}));
+        }
+      }
+      if (!r.ok) throw new Error(j.error || 'Could not create room');
+      return j;
+    }
+
     document.getElementById('createBtn').addEventListener('click', async () => {
       clearErr();
       const btn = document.getElementById('createBtn');
       btn.disabled = true;
       try {
-        const r = await fetch('/api/rooms', { method: 'POST' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || 'Could not create room');
+        const j = await postCreateRoom();
         window.location.href = j.hostUrl;
       } catch (e) {
         errEl.textContent = e.message || String(e);

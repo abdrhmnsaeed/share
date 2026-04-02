@@ -6,7 +6,13 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { createRoom, validateRoom } from './rooms.js';
+import {
+  createRoom,
+  validateRoom,
+  getRoomExpiry,
+  purgeExpiredRooms,
+  ROOM_TTL_MS,
+} from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -14,6 +20,7 @@ const receivedDir = path.join(root, 'received');
 const publicDir = path.join(root, 'public');
 
 const PORT = Number(process.env.PORT) || 8742;
+const CREATE_ROOM_SECRET = process.env.CREATE_ROOM_SECRET || '';
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -31,7 +38,6 @@ function getLanIPv4s() {
   return out;
 }
 
-/** Public base URL for links and QR (set PUBLIC_URL when behind a reverse proxy). */
 function getPublicBaseUrl(req) {
   const fromEnv = process.env.PUBLIC_URL;
   if (fromEnv && typeof fromEnv === 'string') {
@@ -63,6 +69,33 @@ function roomAuthFlexible(req, res, next) {
   return next();
 }
 
+function safeRoomFilePath(roomId, filename) {
+  const safe = path.basename(filename);
+  const dir = path.resolve(path.join(receivedDir, roomId));
+  const full = path.resolve(path.join(dir, safe));
+  if (!full.startsWith(dir + path.sep) && full !== dir) return null;
+  return full;
+}
+
+function listRoomFiles(roomId) {
+  const dir = path.join(receivedDir, roomId);
+  ensureDir(dir);
+  const names = fs.readdirSync(dir).filter((n) => !n.startsWith('.'));
+  names.sort((a, b) => b.localeCompare(a));
+  return names.map((name) => {
+    const fp = path.join(dir, name);
+    let size = 0;
+    try {
+      size = fs.statSync(fp).size;
+    } catch {
+      /* ignore */
+    }
+    const lower = name.toLowerCase();
+    const isText = lower.endsWith('.txt') || lower.endsWith('.md') || lower.endsWith('.json');
+    return { name, size, isText };
+  });
+}
+
 const storage = multer.diskStorage({
   destination: (req, _file, cb) => {
     const dir = path.join(receivedDir, req.params.roomId);
@@ -89,18 +122,44 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
 
 app.post('/api/rooms', (req, res) => {
+  if (CREATE_ROOM_SECRET && req.headers['x-create-token'] !== CREATE_ROOM_SECRET) {
+    return res.status(401).json({ error: 'Create not authorized', needToken: true });
+  }
   const { roomId, secret } = createRoom();
   const base = getPublicBaseUrl(req);
   const hostUrl = `${base}/host/${roomId}?t=${encodeURIComponent(secret)}`;
   const joinUrl = `${base}/join/${roomId}?t=${encodeURIComponent(secret)}`;
-  res.json({ roomId, hostUrl, joinUrl });
+  res.json({
+    roomId,
+    hostUrl,
+    joinUrl,
+    ttlMinutes: Math.round(ROOM_TTL_MS / 60000),
+  });
+});
+
+app.get('/api/rooms/:roomId/info', (req, res) => {
+  const t = req.headers['x-session-token'] || req.query.token;
+  if (!validateRoom(req.params.roomId, t)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const ex = getRoomExpiry(req.params.roomId);
+  if (!ex) return res.status(404).json({ error: 'Room not found' });
+  res.json({
+    expiresAt: ex.expiresAt,
+    ttlMinutes: Math.round(ROOM_TTL_MS / 60000),
+  });
 });
 
 app.get('/join/:roomId', (req, res) => {
   const { roomId } = req.params;
   const t = req.query.t;
   if (!t || !validateRoom(roomId, t)) {
-    res.status(403).type('html').send('<p>Invalid or expired room. Ask for a new invite link from the host.</p>');
+    res
+      .status(403)
+      .type('html')
+      .send(
+        '<p>Invalid or expired room. Rooms auto-delete after about an hour. Ask the host for a new link.</p>',
+      );
     return;
   }
   res.type('html').send(readJoinHtml(roomId, t));
@@ -110,12 +169,16 @@ app.get('/host/:roomId', async (req, res) => {
   const { roomId } = req.params;
   const t = req.query.t;
   if (!t || !validateRoom(roomId, t)) {
-    res.status(403).type('html').send('<p>Invalid or expired room. Create a new room from the home page.</p>');
+    res
+      .status(403)
+      .type('html')
+      .send('<p>Invalid or expired room. Create a new room from your PC (home page).</p>');
     return;
   }
 
   const base = getPublicBaseUrl(req);
   const joinUrl = `${base}/join/${roomId}?t=${encodeURIComponent(t)}`;
+  const ttlMin = Math.round(ROOM_TTL_MS / 60000);
   let qrDataUrl = '';
   try {
     qrDataUrl = await QRCode.toDataURL(joinUrl, { width: 280, margin: 2 });
@@ -126,7 +189,7 @@ app.get('/host/:roomId', async (req, res) => {
   const ips = getLanIPv4s();
   const addrLines = ips.length
     ? ips.map((ip) => `<li><code>${ip}</code></li>`).join('')
-    : '<li><em>No LAN IPv4 — use the public link if hosted, or connect this PC to Wi‑Fi</em></li>';
+    : '<li><em>When hosted, use the link below — devices don’t need the same Wi‑Fi.</em></li>';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -148,17 +211,23 @@ app.get('/host/:roomId', async (req, res) => {
     .box { background: #1a2330; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
     ul { padding-left: 1.2rem; }
     .muted { color: #8b98a5; font-size: 0.9rem; }
-    button { cursor: pointer; background: #1d9bf0; color: #fff; border: 0; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.95rem; }
+    button, .btnlink {
+      cursor: pointer; background: #1d9bf0; color: #fff; border: 0; padding: 0.35rem 0.65rem; border-radius: 6px;
+      font-size: 0.85rem; text-decoration: none; display: inline-block;
+    }
+    button.secondary, .btnlink.secondary { background: #38444d; }
     button:hover { filter: brightness(1.08); }
-    #list { margin-top: 0.5rem; font-size: 0.9rem; max-height: 14rem; overflow: auto; }
-    #list li { margin: 0.25rem 0; }
+    #list { margin-top: 0.5rem; font-size: 0.9rem; max-height: 16rem; overflow: auto; }
+    #list li { margin: 0.35rem 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    #list .fname { flex: 1; min-width: 0; word-break: break-all; }
     .back a { color: #1d9bf0; font-size: 0.9rem; text-decoration: none; }
+    #expiry { font-weight: 600; color: #ffad1f; }
   </style>
 </head>
 <body>
   <p class="back"><a href="/">← Home</a></p>
-  <h1>Room <code>${roomId}</code> — host</h1>
-  <p class="muted">Share the QR or link so others can join. Rooms expire about 48 hours after creation.</p>
+  <h1>Room <code>${roomId}</code> — host (PC)</h1>
+  <p class="muted">Share the join link or QR with any device online — they don’t need your Wi‑Fi. This room and its files are deleted about <strong>${ttlMin} min</strong> after creation. <span id="expiry"></span></p>
   <div class="qr">${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR" width="280" height="280" />` : '<p>Could not generate QR.</p>'}</div>
   <div class="box">
     <div><strong>Join link</strong></div>
@@ -168,22 +237,34 @@ app.get('/host/:roomId', async (req, res) => {
   <div class="box">
     <div><strong>Manual join</strong></div>
     <p>Room ID: <code>${roomId}</code></p>
-    <p>Secret: <code id="secretCopy">${t}</code> <button type="button" id="copySecret">Copy secret</button></p>
+    <p>Secret: <code id="secretCopy">${t}</code> <button type="button" class="secondary" id="copySecret">Copy secret</button></p>
   </div>
   <div class="box">
-    <div><strong>Server / LAN (this machine)</strong></div>
+    <div><strong>Local / optional</strong></div>
     <ul>${addrLines}</ul>
   </div>
   <div class="box">
-    <div><strong>Received in this room</strong> <button type="button" id="refresh">Refresh</button></div>
+    <div><strong>Files in this room</strong> <button type="button" class="secondary" id="refresh">Refresh</button></div>
     <ul id="list"></ul>
-    <p class="muted">On this PC: <code>received\\${roomId}\\</code></p>
+    <p class="muted">Server folder: <code>received\\${roomId}\\</code></p>
   </div>
   <script>
     const TOKEN = ${JSON.stringify(t)};
     const ROOM = ${JSON.stringify(roomId)};
+    const joinUrlStr = ${JSON.stringify(joinUrl)};
+
+    function fmtBytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function fileUrl(name) {
+      return '/api/rooms/' + encodeURIComponent(ROOM) + '/file/' + encodeURIComponent(name) + '?token=' + encodeURIComponent(TOKEN);
+    }
+
     document.getElementById('copyJoin').onclick = () => {
-      navigator.clipboard.writeText(${JSON.stringify(joinUrl)}).then(() => {
+      navigator.clipboard.writeText(joinUrlStr).then(() => {
         document.getElementById('copyJoin').textContent = 'Copied';
         setTimeout(() => { document.getElementById('copyJoin').textContent = 'Copy join link'; }, 2000);
       });
@@ -194,24 +275,67 @@ app.get('/host/:roomId', async (req, res) => {
         setTimeout(() => { document.getElementById('copySecret').textContent = 'Copy secret'; }, 2000);
       });
     };
+
+    async function loadExpiry() {
+      const r = await fetch('/api/rooms/' + encodeURIComponent(ROOM) + '/info?token=' + encodeURIComponent(TOKEN));
+      const j = await r.json().catch(() => ({}));
+      if (j.expiresAt) {
+        const left = Math.max(0, j.expiresAt - Date.now());
+        const m = Math.floor(left / 60000);
+        const s = Math.floor((left % 60000) / 1000);
+        document.getElementById('expiry').textContent = 'Time left: ' + m + 'm ' + s + 's';
+      }
+    }
+
     async function loadList() {
       const r = await fetch('/api/rooms/' + encodeURIComponent(ROOM) + '/received?token=' + encodeURIComponent(TOKEN));
       const j = await r.json();
       const ul = document.getElementById('list');
       ul.innerHTML = '';
-      if (!j.files || j.files.length === 0) {
+      const files = j.files || [];
+      if (files.length === 0) {
         ul.innerHTML = '<li class="muted">No files yet</li>';
         return;
       }
-      for (const f of j.files) {
+      for (const f of files) {
         const li = document.createElement('li');
-        li.textContent = f;
+        const name = typeof f === 'string' ? f : f.name;
+        const size = typeof f === 'object' && f.size != null ? f.size : 0;
+        const isText = typeof f === 'object' && f.isText;
+        const span = document.createElement('span');
+        span.className = 'fname';
+        span.textContent = name + ' (' + fmtBytes(size) + ')';
+        li.appendChild(span);
+        const a = document.createElement('a');
+        a.className = 'btnlink';
+        a.href = fileUrl(name);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.download = '';
+        a.textContent = 'Download';
+        li.appendChild(a);
+        if (isText) {
+          const c = document.createElement('button');
+          c.type = 'button';
+          c.className = 'secondary';
+          c.textContent = 'Copy text';
+          c.onclick = async () => {
+            const tr = await fetch(fileUrl(name));
+            const tx = await tr.text();
+            await navigator.clipboard.writeText(tx);
+            c.textContent = 'Copied';
+            setTimeout(() => { c.textContent = 'Copy text'; }, 2000);
+          };
+          li.appendChild(c);
+        }
         ul.appendChild(li);
       }
     }
-    document.getElementById('refresh').onclick = loadList;
+    document.getElementById('refresh').onclick = () => { loadList(); loadExpiry(); };
     loadList();
-    setInterval(loadList, 8000);
+    loadExpiry();
+    setInterval(() => { loadList(); loadExpiry(); }, 8000);
+    setInterval(loadExpiry, 1000);
   </script>
 </body>
 </html>`;
@@ -252,31 +376,43 @@ app.get('/api/rooms/:roomId/received', (req, res) => {
   if (!validateRoom(req.params.roomId, t)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const dir = path.join(receivedDir, req.params.roomId);
-  ensureDir(dir);
-  const names = fs.readdirSync(dir).filter((n) => !n.startsWith('.'));
-  names.sort((a, b) => b.localeCompare(a));
-  res.json({ files: names });
+  const files = listRoomFiles(req.params.roomId);
+  res.json({ files });
 });
+
+app.get('/api/rooms/:roomId/file/:filename', (req, res) => {
+  const tok = req.query.token;
+  if (!validateRoom(req.params.roomId, tok)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const fp = safeRoomFilePath(req.params.roomId, req.params.filename);
+  if (!fp || !fs.existsSync(fp)) {
+    return res.status(404).end();
+  }
+  res.download(fp, path.basename(fp));
+});
+
+ensureDir(receivedDir);
+ensureDir(publicDir);
 
 app.get('/', (_req, res) => {
   res.sendFile(path.join(publicDir, 'home.html'));
 });
 
-ensureDir(publicDir);
 app.use(express.static(publicDir, { index: false }));
+
+setInterval(() => purgeExpiredRooms(receivedDir), 60 * 1000);
 
 app.listen(PORT, '0.0.0.0', () => {
   const ips = getLanIPv4s();
   const host = ips[0] || '127.0.0.1';
   console.log('');
-  console.log('  LAN Drop — listening on 0.0.0.0 port', PORT);
+  console.log('  LAN Drop — http://0.0.0.0:' + PORT);
   console.log('  Home:  http://localhost:' + PORT + '/');
-  if (process.env.PUBLIC_URL) {
-    console.log('  PUBLIC_URL:', process.env.PUBLIC_URL);
-  }
-  console.log('  Example on LAN: http://' + host + ':' + PORT + '/');
-  console.log('');
-  console.log('  Files: ', receivedDir);
+  if (process.env.PUBLIC_URL) console.log('  PUBLIC_URL:', process.env.PUBLIC_URL);
+  console.log('  Room TTL:', Math.round(ROOM_TTL_MS / 60000), 'minutes');
+  if (CREATE_ROOM_SECRET) console.log('  CREATE_ROOM_SECRET: set (required for POST /api/rooms)');
+  console.log('  Storage:', receivedDir);
+  console.log('  Example LAN:', 'http://' + host + ':' + PORT + '/');
   console.log('');
 });

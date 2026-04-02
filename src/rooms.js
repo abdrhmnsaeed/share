@@ -1,9 +1,12 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 /** @type {Map<string, { secret: string, createdAt: number }>} */
 const rooms = new Map();
 
-const ROOM_TTL_MS = 48 * 60 * 60 * 1000;
+export const ROOM_TTL_MS =
+  Number(process.env.ROOM_TTL_MINUTES || 60) * 60 * 1000;
 
 export function createRoom() {
   const roomId = crypto.randomBytes(4).toString('hex');
@@ -27,9 +30,27 @@ export function validateRoom(roomId, secret) {
   return !!(r && r.secret === secret);
 }
 
-setInterval(() => {
+/** @returns {{ expiresAt: number } | null} */
+export function getRoomExpiry(roomId) {
+  const r = getRoom(roomId);
+  if (!r) return null;
+  return { expiresAt: r.createdAt + ROOM_TTL_MS };
+}
+
+/**
+ * Remove expired rooms from memory and delete their folders under receivedRoot.
+ * No database: rooms map + filesystem only.
+ */
+export function purgeExpiredRooms(receivedRoot) {
   const now = Date.now();
   for (const [id, v] of rooms) {
-    if (now - v.createdAt > ROOM_TTL_MS) rooms.delete(id);
+    if (now - v.createdAt <= ROOM_TTL_MS) continue;
+    rooms.delete(id);
+    const dir = path.join(receivedRoot, id);
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
-}, 15 * 60 * 1000);
+}
