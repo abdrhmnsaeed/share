@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -67,9 +68,15 @@ function safeFilePath(filename) {
   return full;
 }
 
+function isClipFile(name) {
+  return /^clip-.+\.txt$/i.test(name);
+}
+
 function listFiles() {
   ensureDir(receivedDir);
-  const names = fs.readdirSync(receivedDir).filter((n) => !n.startsWith('.'));
+  const names = fs
+    .readdirSync(receivedDir)
+    .filter((n) => !n.startsWith('.') && !isClipFile(n));
   names.sort((a, b) => b.localeCompare(a));
   return names.map((name) => {
     const fp = path.join(receivedDir, name);
@@ -102,15 +109,39 @@ function purgeOldFiles() {
   }
 }
 
+function pickUploadFilename(originalname) {
+  let base = path.basename(originalname).replace(/[^a-zA-Z0-9._\- ()]+/g, '_') || 'file';
+  if (isClipFile(base)) {
+    base = `file_${base}`;
+  }
+  const ext = path.extname(base);
+  const stem = ext ? base.slice(0, -ext.length) : base;
+  let name = base;
+  let fp = path.join(receivedDir, name);
+  if (!fs.existsSync(fp)) return name;
+  let n = 1;
+  while (n < 500) {
+    name = `${stem} (${n})${ext}`;
+    fp = path.join(receivedDir, name);
+    if (!fs.existsSync(fp)) return name;
+    n += 1;
+  }
+  return `${stem}_${Date.now()}${ext}`;
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     ensureDir(receivedDir);
     cb(null, receivedDir);
   },
   filename: (_req, file, cb) => {
-    const base = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\- ()]+/g, '_');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    cb(null, `${stamp}_${base}`);
+    try {
+      cb(null, pickUploadFilename(file.originalname));
+    } catch (e) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const base = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\- ()]+/g, '_') || 'file';
+      cb(null, `${stamp}_${base}`);
+    }
   },
 });
 
@@ -146,10 +177,52 @@ app.post('/api/text', checkUploadAuth, (req, res) => {
     return res.status(400).json({ error: 'Text too large (max 5 MB)' });
   }
   ensureDir(receivedDir);
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `${stamp}_paste.txt`;
+  const filename = `clip-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.txt`;
   fs.writeFileSync(path.join(receivedDir, filename), text, 'utf8');
   res.json({ ok: true, saved: filename });
+});
+
+/** Max total UTF-8 bytes returned for all clipboard entries in one response */
+const MAX_CLIPBOARD_READ = 2 * 1024 * 1024;
+
+app.get('/api/clipboard', (_req, res) => {
+  ensureDir(receivedDir);
+  const withMtime = fs
+    .readdirSync(receivedDir)
+    .filter((n) => isClipFile(n))
+    .map((name) => {
+      try {
+        const st = fs.statSync(path.join(receivedDir, name));
+        return { name, mtime: st.mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime);
+
+  const items = [];
+  let totalBytes = 0;
+  for (const { name } of withMtime) {
+    if (items.length >= 80) break;
+    try {
+      const text = fs.readFileSync(path.join(receivedDir, name), 'utf8');
+      const len = Buffer.byteLength(text, 'utf8');
+      if (totalBytes + len > MAX_CLIPBOARD_READ) {
+        if (totalBytes >= MAX_CLIPBOARD_READ) break;
+        const budget = MAX_CLIPBOARD_READ - totalBytes;
+        let cut = text.length;
+        while (cut > 0 && Buffer.byteLength(text.slice(0, cut), 'utf8') > budget) cut -= 1;
+        items.push({ id: name, text: text.slice(0, cut), truncated: true });
+        break;
+      }
+      totalBytes += len;
+      items.push({ id: name, text });
+    } catch {
+      /* skip */
+    }
+  }
+  res.json({ items });
 });
 
 app.get('/api/files', (_req, res) => {
