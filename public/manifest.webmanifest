@@ -1,0 +1,19 @@
+{
+  "name": "LAN Drop",
+  "short_name": "LAN Drop",
+  "description": "Create or join a room to share files and text on your network.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

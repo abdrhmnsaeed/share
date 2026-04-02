@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0f1419" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>LAN Drop</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/icon.svg" />
+  <script src="/pwa-register.js" defer></script>
+  <style>
+    :root { font-family: system-ui, Segoe UI, sans-serif; background: #0f1419; color: #e7e9ea; }
+    body { max-width: 26rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.5rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    .muted { color: #8b98a5; font-size: 0.9rem; margin: 0 0 1rem; }
+    .box { background: #1a2330; border-radius: 10px; padding: 1rem 1.1rem; margin: 0.75rem 0; }
+    button {
+      cursor: pointer; background: #1d9bf0; color: #fff; border: 0;
+      padding: 0.55rem 1rem; border-radius: 8px; font-size: 0.95rem; width: 100%;
+    }
+    button.secondary { background: #38444d; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.hidden { display: none; }
+    input {
+      width: 100%; box-sizing: border-box; padding: 0.55rem 0.65rem; border-radius: 8px;
+      border: 1px solid #536471; background: #15202b; color: #e7e9ea; font-size: 1rem; margin: 0.35rem 0;
+    }
+    label { font-size: 0.85rem; color: #8b98a5; display: block; margin-top: 0.5rem; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .row button { flex: 1; min-width: 8rem; }
+    #err { color: #f4212e; font-size: 0.9rem; margin-top: 0.5rem; }
+    #iosHint { font-size: 0.85rem; color: #8b98a5; display: none; }
+    #iosHint.show { display: block; }
+  </style>
+</head>
+<body>
+  <h1>LAN Drop</h1>
+  <p class="muted">Create a room on one device, join from another. Install the app for quick access; the UI works offline after the first load, but transfers need your server online (hosted) or reachable on your network.</p>
+
+  <div class="box">
+    <h2 style="margin-top:0">Install</h2>
+    <p class="muted" style="margin:0 0 0.75rem">Add to your home screen — opens like an app and caches this page for offline access.</p>
+    <button type="button" class="secondary hidden" id="installBtn">Install app</button>
+    <p id="iosHint">On iPhone/iPad: Share → <strong>Add to Home Screen</strong>.</p>
+  </div>
+
+  <div class="box">
+    <h2 style="margin-top:0">Create a room</h2>
+    <p class="muted" style="margin:0 0 0.75rem">You’ll get a QR code and a link to share.</p>
+    <button type="button" id="createBtn">Create room</button>
+    <p id="err"></p>
+  </div>
+
+  <div class="box">
+    <h2 style="margin-top:0">Join a room</h2>
+    <label for="invite">Paste invite link</label>
+    <input type="url" id="invite" placeholder="https://…/join/…?t=…" autocomplete="off" />
+    <button type="button" class="secondary" id="joinLinkBtn" style="margin-top:0.75rem">Open link</button>
+    <label for="roomId">Or enter room ID + secret</label>
+    <input type="text" id="roomId" placeholder="Room ID (8 characters)" maxlength="16" autocomplete="off" />
+    <input type="password" id="secret" placeholder="Secret (from host screen)" autocomplete="off" />
+    <button type="button" class="secondary" id="joinManualBtn" style="margin-top:0.75rem">Join with ID</button>
+  </div>
+
+  <script>
+    const errEl = document.getElementById('err');
+    function clearErr() { errEl.textContent = ''; }
+
+    function parseJoinUrl(raw) {
+      const s = (raw || '').trim();
+      if (!s) return null;
+      try {
+        const u = new URL(s, window.location.origin);
+        const m = u.pathname.match(/\/join\/([a-f0-9]+)/i);
+        if (!m) return null;
+        const roomId = m[1];
+        const t = u.searchParams.get('t');
+        if (!t) return null;
+        return { roomId, t };
+      } catch {
+        return null;
+      }
+    }
+
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      clearErr();
+      const btn = document.getElementById('createBtn');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/rooms', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || 'Could not create room');
+        window.location.href = j.hostUrl;
+      } catch (e) {
+        errEl.textContent = e.message || String(e);
+      }
+      btn.disabled = false;
+    });
+
+    document.getElementById('joinLinkBtn').addEventListener('click', () => {
+      clearErr();
+      const parsed = parseJoinUrl(document.getElementById('invite').value);
+      if (!parsed) {
+        errEl.textContent = 'Paste a valid invite link (must include /join/… and ?t=…).';
+        return;
+      }
+      window.location.href = '/join/' + encodeURIComponent(parsed.roomId) + '?t=' + encodeURIComponent(parsed.t);
+    });
+
+    document.getElementById('joinManualBtn').addEventListener('click', () => {
+      clearErr();
+      const roomId = document.getElementById('roomId').value.trim().toLowerCase();
+      const secret = document.getElementById('secret').value.trim();
+      if (!/^[a-f0-9]{8}$/.test(roomId)) {
+        errEl.textContent = 'Room ID should be 8 hex characters.';
+        return;
+      }
+      if (!secret) {
+        errEl.textContent = 'Enter the secret from the host screen.';
+        return;
+      }
+      window.location.href = '/join/' + encodeURIComponent(roomId) + '?t=' + encodeURIComponent(secret);
+    });
+
+    const installBtn = document.getElementById('installBtn');
+    const iosHint = document.getElementById('iosHint');
+    let deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.classList.remove('hidden');
+    });
+
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.classList.add('hidden');
+    });
+
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      iosHint.classList.add('show');
+    }
+  </script>
+</body>
+</html>

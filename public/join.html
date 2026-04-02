@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="session-token" content="__SESSION_TOKEN__" />
+  <meta name="room-id" content="__ROOM_ID__" />
+  <title>LAN Drop — Send</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <script src="/pwa-register.js" defer></script>
+  <style>
+    :root { font-family: system-ui, -apple-system, sans-serif; background: #0f1419; color: #e7e9ea; }
+    body { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.2rem; font-weight: 600; }
+    .zone {
+      border: 2px dashed #536471; border-radius: 12px; padding: 2rem 1rem;
+      text-align: center; margin: 1rem 0; background: #1a2330;
+    }
+    .zone.drag { border-color: #1d9bf0; background: #15202b; }
+    input[type="file"] { width: 100%; margin-top: 0.75rem; }
+    #log { font-size: 0.85rem; color: #8b98a5; margin-top: 1rem; white-space: pre-wrap; word-break: break-word; }
+    .ok { color: #00ba7c; }
+    .err { color: #f4212e; }
+    button {
+      cursor: pointer; background: #1d9bf0; color: #fff; border: 0;
+      padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 1rem; margin-top: 0.5rem;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+    textarea {
+      width: 100%; min-height: 7rem; box-sizing: border-box; padding: 0.65rem;
+      border-radius: 8px; border: 1px solid #536471; background: #15202b; color: #e7e9ea;
+      font-size: 1rem; resize: vertical;
+    }
+    .textbox { margin: 0.5rem 0 0; }
+    .back { margin-bottom: 1rem; }
+    .back a { color: #1d9bf0; text-decoration: none; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <p class="back"><a href="/">← Home</a></p>
+  <h1>Send to this room</h1>
+  <h2>Text</h2>
+  <p class="muted" style="font-size:0.85rem;color:#8b98a5;margin:0 0 0.5rem;">Paste notes, links, or anything — saved on the host.</p>
+  <div class="textbox">
+    <textarea id="txt" placeholder="Paste or type here…" autocomplete="off"></textarea>
+    <p><button type="button" id="sendText">Send text</button></p>
+  </div>
+  <h2>Files</h2>
+  <div class="zone" id="zone">
+    <p>Choose files or tap below</p>
+    <input type="file" id="f" multiple />
+    <p><button type="button" id="send" disabled>Upload</button></p>
+  </div>
+  <div id="log"></div>
+  <script>
+    const TOKEN = document.querySelector('meta[name="session-token"]').getAttribute('content');
+    const ROOM_ID = document.querySelector('meta[name="room-id"]').getAttribute('content');
+    const API = '/api/rooms/' + encodeURIComponent(ROOM_ID);
+
+    const zone = document.getElementById('zone');
+    const input = document.getElementById('f');
+    const send = document.getElementById('send');
+    const sendText = document.getElementById('sendText');
+    const txt = document.getElementById('txt');
+    const log = document.getElementById('log');
+
+    function msg(text, cls) {
+      const span = document.createElement('div');
+      span.className = cls || '';
+      span.textContent = text;
+      log.appendChild(span);
+    }
+
+    input.addEventListener('change', () => {
+      send.disabled = !input.files || input.files.length === 0;
+    });
+
+    ['dragenter', 'dragover'].forEach((ev) => {
+      zone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        zone.classList.add('drag');
+      });
+    });
+    ['dragleave', 'drop'].forEach((ev) => {
+      zone.addEventListener(ev, (e) => {
+        e.preventDefault();
+        zone.classList.remove('drag');
+      });
+    });
+    zone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        send.disabled = false;
+      }
+    });
+
+    sendText.addEventListener('click', async () => {
+      const text = (txt.value || '').trim();
+      if (!text) {
+        msg('Type or paste something first.', 'err');
+        return;
+      }
+      sendText.disabled = true;
+      try {
+        const r = await fetch(API + '/text', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-Token': TOKEN,
+          },
+          body: JSON.stringify({ token: TOKEN, text }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          msg(j.error || ('HTTP ' + r.status), 'err');
+        } else {
+          msg('Saved text as: ' + (j.saved || 'paste.txt'), 'ok');
+          txt.value = '';
+        }
+      } catch (e) {
+        msg(String(e.message || e), 'err');
+      }
+      sendText.disabled = false;
+    });
+
+    send.addEventListener('click', async () => {
+      if (!input.files || !input.files.length) return;
+      send.disabled = true;
+      log.innerHTML = '';
+      const fd = new FormData();
+      fd.append('token', TOKEN);
+      for (let i = 0; i < input.files.length; i++) {
+        fd.append('files', input.files[i]);
+      }
+      try {
+        const r = await fetch(API + '/upload', {
+          method: 'POST',
+          headers: { 'X-Session-Token': TOKEN },
+          body: fd,
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          msg(j.error || ('HTTP ' + r.status), 'err');
+        } else {
+          msg('Saved: ' + (j.saved || []).join(', '), 'ok');
+        }
+      } catch (e) {
+        msg(String(e.message || e), 'err');
+      }
+      send.disabled = !input.files || input.files.length === 0;
+    });
+  </script>
+</body>
+</html>
