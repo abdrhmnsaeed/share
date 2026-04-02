@@ -1,29 +1,29 @@
 /**
- * Personal site settings — edit values below (no separate .env needed).
+ * Personal site settings — edit values below.
  *
- * | Setting            | Purpose |
- * |--------------------|----------------------------------------------------------|
- * | publicUrl          | https://your-app.com — correct QR/join links when hosted (no trailing slash). Leave '' to build URLs from each request (Host / proto). |
- * | roomTtlMinutes     | Room + files deleted after this many minutes (default 60). |
- * | createRoomSecret   | If non-empty, POST /api/rooms requires header X-Create-Token with this value. If '', anyone can create a room. |
- * | trustProxy         | 1 = trust X-Forwarded-Proto / X-Forwarded-Host behind HTTPS reverse proxies. Use 0 when not behind a proxy. |
- * | port               | HTTP listen port when running locally (see port line below for hosted overrides). |
+ * | Setting           | Purpose |
+ * |-------------------|----------------------------------------------------------|
+ * | publicUrl         | Optional https://your-app.com (no trailing slash). Leave '' — not needed for a single-page drop. |
+ * | fileTtlMinutes    | Files and text pastes older than this are deleted from the server (default 60). |
+ * | uploadSecret      | If non-empty, uploads require header X-Upload-Token with this value. Downloads stay open. Leave '' for no upload password. |
+ * | trustProxy        | 1 = trust X-Forwarded-* behind HTTPS reverse proxies. 0 if not behind a proxy. |
+ * | port              | HTTP port; hosts often set process.env.PORT (see below). |
  */
 
 /** @type {string} */
 export const publicUrl = '';
 
 /** @type {number} */
-export const roomTtlMinutes = 60;
+export const fileTtlMinutes = 60;
 
 /** @type {string} */
-export const createRoomSecret = '';
+export const uploadSecret = '';
 
 /** @type {number} */
 export const trustProxy = 1;
 
 /**
- * Listen port: default 8742. Many hosts inject process.env.PORT — we honor it when set.
+ * Listen port: default 8742. Many hosts inject process.env.PORT.
  * @type {number}
  */
 export const port = Number(process.env.PORT) || 8742;

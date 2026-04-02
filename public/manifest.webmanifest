@@ -1,7 +1,7 @@
 {
-  "name": "LAN Drop",
-  "short_name": "LAN Drop",
-  "description": "Create or join a room to share files and text on your network.",
+  "name": "Drop",
+  "short_name": "Drop",
+  "description": "Paste text and upload files; download or copy from one page.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

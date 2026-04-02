@@ -6,166 +6,254 @@
   <meta name="theme-color" content="#0f1419" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>LAN Drop</title>
+  <title>Drop</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/icon.svg" />
   <script src="/pwa-register.js" defer></script>
   <style>
     :root { font-family: system-ui, Segoe UI, sans-serif; background: #0f1419; color: #e7e9ea; }
-    body { max-width: 26rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    body { max-width: 28rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
     h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.5rem; }
-    h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
     .muted { color: #8b98a5; font-size: 0.9rem; margin: 0 0 1rem; }
     .box { background: #1a2330; border-radius: 10px; padding: 1rem 1.1rem; margin: 0.75rem 0; }
-    button {
-      cursor: pointer; background: #1d9bf0; color: #fff; border: 0;
-      padding: 0.55rem 1rem; border-radius: 8px; font-size: 0.95rem; width: 100%;
+    .zone {
+      border: 2px dashed #536471; border-radius: 12px; padding: 1.5rem 1rem;
+      text-align: center; margin: 0.5rem 0 0; background: #15202b;
     }
-    button.secondary { background: #38444d; }
+    .zone.drag { border-color: #1d9bf0; }
+    input[type="file"] { width: 100%; margin-top: 0.5rem; }
+    textarea {
+      width: 100%; min-height: 6rem; box-sizing: border-box; padding: 0.65rem;
+      border-radius: 8px; border: 1px solid #536471; background: #15202b; color: #e7e9ea;
+      font-size: 1rem; resize: vertical;
+    }
+    button, .btnlink {
+      cursor: pointer; background: #1d9bf0; color: #fff; border: 0;
+      padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.95rem;
+      text-decoration: none; display: inline-block;
+    }
+    button.secondary, .btnlink.secondary { background: #38444d; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     button.hidden { display: none; }
-    input {
-      width: 100%; box-sizing: border-box; padding: 0.55rem 0.65rem; border-radius: 8px;
-      border: 1px solid #536471; background: #15202b; color: #e7e9ea; font-size: 1rem; margin: 0.35rem 0;
-    }
-    label { font-size: 0.85rem; color: #8b98a5; display: block; margin-top: 0.5rem; }
-    #err { color: #f4212e; font-size: 0.9rem; margin-top: 0.5rem; }
+    button.wide { width: 100%; margin-top: 0.5rem; }
+    #browse li { margin: 0.4rem 0; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-size: 0.9rem; list-style: none; }
+    #browse { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+    #browse .fname { flex: 1; min-width: 0; word-break: break-all; }
+    #log { font-size: 0.85rem; margin-top: 0.75rem; white-space: pre-wrap; word-break: break-word; }
+    .ok { color: #00ba7c; }
+    .err { color: #f4212e; }
     #iosHint { font-size: 0.85rem; color: #8b98a5; display: none; }
     #iosHint.show { display: block; }
-    .pc-only { display: block; }
-    .mobile-only { display: none; }
-    @media (max-width: 720px) {
-      .pc-only { display: none !important; }
-      .mobile-only { display: block !important; }
-    }
   </style>
 </head>
 <body>
-  <h1>LAN Drop</h1>
-  <p class="muted">Works over the <strong>internet</strong> — devices don’t need the same Wi‑Fi. Create a room on your <strong>computer</strong>; everyone else opens the join link to upload, download, or copy text. Rooms and files are removed automatically after about <strong>1 hour</strong> (no database — storage is temporary files on the server).</p>
+  <h1>Drop</h1>
+  <p class="muted">Paste text or upload files. Anyone with this page can <strong>download</strong> or <strong>copy</strong> text. Old files are removed automatically (see <code>fileTtlMinutes</code> in <code>src/config.js</code>).</p>
 
   <div class="box">
     <h2 style="margin-top:0">Install</h2>
-    <p class="muted" style="margin:0 0 0.75rem">Add to home screen for quick access.</p>
+    <p class="muted" style="margin:0 0 0.5rem">Add to home screen if you like.</p>
     <button type="button" class="secondary hidden" id="installBtn">Install app</button>
-    <p id="iosHint">On iPhone/iPad: Share → <strong>Add to Home Screen</strong>.</p>
-  </div>
-
-  <div class="box pc-only">
-    <h2 style="margin-top:0">Create a room (PC)</h2>
-    <p class="muted" style="margin:0 0 0.75rem">Opens the host screen with QR and join link. If links show the wrong host when deployed, set <code>publicUrl</code> in <code>src/config.js</code>.</p>
-    <button type="button" id="createBtn">Create room</button>
-    <p id="err"></p>
-  </div>
-
-  <div class="box mobile-only">
-    <h2 style="margin-top:0">Create a room</h2>
-    <p class="muted" style="margin:0">To <strong>start</strong> a room, open this website on a <strong>computer</strong> and tap <strong>Create room</strong>. On this phone you can <strong>join</strong> with a link below.</p>
+    <p id="iosHint">iPhone/iPad: Share → <strong>Add to Home Screen</strong>.</p>
   </div>
 
   <div class="box">
-    <h2 style="margin-top:0">Join a room</h2>
-    <label for="invite">Paste invite link</label>
-    <input type="url" id="invite" placeholder="https://…/join/…?t=…" autocomplete="off" />
-    <button type="button" class="secondary" id="joinLinkBtn" style="margin-top:0.75rem">Open link</button>
-    <label for="roomId">Or room ID + secret</label>
-    <input type="text" id="roomId" placeholder="Room ID (8 characters)" maxlength="16" autocomplete="off" />
-    <input type="password" id="secret" placeholder="Secret (from host)" autocomplete="off" />
-    <button type="button" class="secondary" id="joinManualBtn" style="margin-top:0.75rem">Join</button>
+    <h2 style="margin-top:0">Shared files</h2>
+    <p class="muted" style="margin:0 0 0.5rem;font-size:0.85rem">Download or copy text from pasted .txt / .md / .json.</p>
+    <button type="button" class="secondary" id="refreshBrowse">Refresh</button>
+    <ul id="browse"></ul>
+  </div>
+
+  <div class="box">
+    <h2 style="margin-top:0">Add text</h2>
+    <textarea id="txt" placeholder="Paste or type…" autocomplete="off"></textarea>
+    <button type="button" class="wide" id="sendText">Save text</button>
+  </div>
+
+  <div class="box">
+    <h2 style="margin-top:0">Upload files</h2>
+    <div class="zone" id="zone">
+      <input type="file" id="f" multiple />
+      <button type="button" class="wide" id="send" disabled>Upload</button>
+    </div>
+    <div id="log"></div>
   </div>
 
   <script>
-    const LS_CREATE = 'lanDropCreateToken';
+    const LS_UPLOAD = 'lanDropUploadToken';
 
-    const errEl = document.getElementById('err');
-    function clearErr() { errEl.textContent = ''; }
-
-    function parseJoinUrl(raw) {
-      const s = (raw || '').trim();
-      if (!s) return null;
-      try {
-        const u = new URL(s, window.location.origin);
-        const m = u.pathname.match(/\/join\/([a-f0-9]+)/i);
-        if (!m) return null;
-        const roomId = m[1];
-        const t = u.searchParams.get('t');
-        if (!t) return null;
-        return { roomId, t };
-      } catch {
-        return null;
-      }
+    function uploadHeaders() {
+      const h = { 'Content-Type': 'application/json' };
+      const tok = localStorage.getItem(LS_UPLOAD);
+      if (tok) h['X-Upload-Token'] = tok;
+      return h;
     }
 
-    async function postCreateRoom() {
-      const headers = {};
-      const tok = localStorage.getItem(LS_CREATE);
-      if (tok) headers['X-Create-Token'] = tok;
-      let r = await fetch('/api/rooms', { method: 'POST', headers });
+    function uploadHeadersMultipart() {
+      const h = {};
+      const tok = localStorage.getItem(LS_UPLOAD);
+      if (tok) h['X-Upload-Token'] = tok;
+      return h;
+    }
+
+    async function ensureUploadAuth(doFetch) {
+      let r = await doFetch();
       let j = await r.json().catch(() => ({}));
       if (r.status === 401 && j.needToken) {
-        const p = window.prompt('Enter the create password (same as createRoomSecret in src/config.js). Leave empty if none.');
+        const p = window.prompt('Upload password (same as uploadSecret in src/config.js). Leave empty if none.');
         if (p === null) throw new Error('Cancelled');
-        if (p) {
-          localStorage.setItem(LS_CREATE, p);
-          headers['X-Create-Token'] = p;
-          r = await fetch('/api/rooms', { method: 'POST', headers });
-          j = await r.json().catch(() => ({}));
-        }
+        if (p) localStorage.setItem(LS_UPLOAD, p);
+        r = await doFetch();
+        j = await r.json().catch(() => ({}));
       }
-      if (!r.ok) throw new Error(j.error || 'Could not create room');
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
       return j;
     }
 
-    document.getElementById('createBtn').addEventListener('click', async () => {
-      clearErr();
-      const btn = document.getElementById('createBtn');
-      btn.disabled = true;
+    function fmtBytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function fileUrl(name) {
+      return '/api/file/' + encodeURIComponent(name);
+    }
+
+    function msg(text, cls) {
+      const log = document.getElementById('log');
+      const span = document.createElement('div');
+      span.className = cls || '';
+      span.textContent = text;
+      log.appendChild(span);
+    }
+
+    async function loadBrowse() {
+      const r = await fetch('/api/files');
+      const j = await r.json().catch(() => ({}));
+      const ul = document.getElementById('browse');
+      ul.innerHTML = '';
+      const files = j.files || [];
+      if (files.length === 0) {
+        const li = document.createElement('li');
+        li.style.color = '#8b98a5';
+        li.textContent = 'Nothing here yet';
+        ul.appendChild(li);
+        return;
+      }
+      for (const f of files) {
+        const name = f.name;
+        const size = f.size != null ? f.size : 0;
+        const isText = f.isText;
+        const li = document.createElement('li');
+        const span = document.createElement('span');
+        span.className = 'fname';
+        span.textContent = name + ' (' + fmtBytes(size) + ')';
+        li.appendChild(span);
+        const a = document.createElement('a');
+        a.className = 'btnlink';
+        a.href = fileUrl(name);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'Download';
+        li.appendChild(a);
+        if (isText) {
+          const c = document.createElement('button');
+          c.type = 'button';
+          c.className = 'secondary';
+          c.textContent = 'Copy text';
+          c.onclick = async () => {
+            const tr = await fetch(fileUrl(name));
+            const tx = await tr.text();
+            await navigator.clipboard.writeText(tx);
+            c.textContent = 'Copied';
+            setTimeout(() => { c.textContent = 'Copy text'; }, 2000);
+          };
+          li.appendChild(c);
+        }
+        ul.appendChild(li);
+      }
+    }
+
+    document.getElementById('refreshBrowse').addEventListener('click', loadBrowse);
+
+    const input = document.getElementById('f');
+    const send = document.getElementById('send');
+    input.addEventListener('change', () => {
+      send.disabled = !input.files || input.files.length === 0;
+    });
+
+    const zone = document.getElementById('zone');
+    ['dragenter', 'dragover'].forEach((ev) => {
+      zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); });
+    });
+    ['dragleave', 'drop'].forEach((ev) => {
+      zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); });
+    });
+    zone.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        send.disabled = false;
+      }
+    });
+
+    document.getElementById('sendText').addEventListener('click', async () => {
+      const text = (document.getElementById('txt').value || '').trim();
+      if (!text) {
+        msg('Type or paste something first.', 'err');
+        return;
+      }
+      document.getElementById('log').innerHTML = '';
       try {
-        const j = await postCreateRoom();
-        window.location.href = j.hostUrl;
+        await ensureUploadAuth(() =>
+          fetch('/api/text', {
+            method: 'POST',
+            headers: uploadHeaders(),
+            body: JSON.stringify({ text }),
+          }),
+        );
+        document.getElementById('txt').value = '';
+        msg('Saved.', 'ok');
+        loadBrowse();
       } catch (e) {
-        errEl.textContent = e.message || String(e);
+        msg(e.message || String(e), 'err');
       }
-      btn.disabled = false;
     });
 
-    document.getElementById('joinLinkBtn').addEventListener('click', () => {
-      clearErr();
-      const parsed = parseJoinUrl(document.getElementById('invite').value);
-      if (!parsed) {
-        errEl.textContent = 'Paste a valid invite link (must include /join/… and ?t=…).';
-        return;
+    send.addEventListener('click', async () => {
+      if (!input.files || !input.files.length) return;
+      send.disabled = true;
+      document.getElementById('log').innerHTML = '';
+      const fd = new FormData();
+      for (let i = 0; i < input.files.length; i++) {
+        fd.append('files', input.files[i]);
       }
-      window.location.href = '/join/' + encodeURIComponent(parsed.roomId) + '?t=' + encodeURIComponent(parsed.t);
-    });
-
-    document.getElementById('joinManualBtn').addEventListener('click', () => {
-      clearErr();
-      const roomId = document.getElementById('roomId').value.trim().toLowerCase();
-      const secret = document.getElementById('secret').value.trim();
-      if (!/^[a-f0-9]{8}$/.test(roomId)) {
-        errEl.textContent = 'Room ID should be 8 hex characters.';
-        return;
+      try {
+        await ensureUploadAuth(() =>
+          fetch('/api/upload', {
+            method: 'POST',
+            headers: uploadHeadersMultipart(),
+            body: fd,
+          }),
+        );
+        msg('Uploaded.', 'ok');
+        loadBrowse();
+      } catch (e) {
+        msg(e.message || String(e), 'err');
       }
-      if (!secret) {
-        errEl.textContent = 'Enter the secret from the host screen.';
-        return;
-      }
-      window.location.href = '/join/' + encodeURIComponent(roomId) + '?t=' + encodeURIComponent(secret);
+      send.disabled = !input.files || input.files.length === 0;
     });
 
     const installBtn = document.getElementById('installBtn');
     const iosHint = document.getElementById('iosHint');
     let deferredPrompt = null;
-
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
       installBtn.classList.remove('hidden');
     });
-
     installBtn.addEventListener('click', async () => {
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
@@ -173,10 +261,12 @@
       deferredPrompt = null;
       installBtn.classList.add('hidden');
     });
-
     if (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
       iosHint.classList.add('show');
     }
+
+    loadBrowse();
+    setInterval(loadBrowse, 15000);
   </script>
 </body>
 </html>

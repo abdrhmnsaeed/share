@@ -1,5 +1,5 @@
 /* LAN Drop — offline shell; API calls always go to the network */
-const CACHE = 'lan-drop-v2';
+const CACHE = 'drop-v3';
 const PRECACHE = [
   '/',
   '/offline.html',
