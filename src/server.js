@@ -10,19 +10,45 @@ import {
   trustProxy,
   port as configPort,
   fileTtlMinutes,
+  receivedDir as configReceivedDir,
 } from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
-const receivedDir = path.join(root, 'received');
 const publicDir = path.join(root, 'public');
 
-const PORT = configPort;
-const FILE_TTL_MS = fileTtlMinutes * 60 * 1000;
+function resolveReceivedDir() {
+  if (process.env.RECEIVED_DIR) {
+    return path.resolve(process.env.RECEIVED_DIR);
+  }
+  if (configReceivedDir && String(configReceivedDir).trim()) {
+    return path.resolve(configReceivedDir);
+  }
+  if (process.env.VERCEL) {
+    return path.join(os.tmpdir(), 'drop-received');
+  }
+  return path.join(root, 'received');
+}
+
+let receivedDir = resolveReceivedDir();
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
+
+function initStorage() {
+  try {
+    ensureDir(receivedDir);
+  } catch (err) {
+    const fallback = path.join(os.tmpdir(), 'drop-received');
+    console.warn('[drop] could not create', receivedDir, '→', fallback, err?.message || err);
+    receivedDir = fallback;
+    ensureDir(receivedDir);
+  }
+}
+
+const PORT = configPort;
+const FILE_TTL_MS = fileTtlMinutes * 60 * 1000;
 
 function checkUploadAuth(req, res, next) {
   if (!uploadSecret) return next();
@@ -138,7 +164,7 @@ app.get('/api/file/:filename', (req, res) => {
   res.download(fp, path.basename(fp));
 });
 
-ensureDir(receivedDir);
+initStorage();
 ensureDir(publicDir);
 
 app.get('/', (_req, res) => {

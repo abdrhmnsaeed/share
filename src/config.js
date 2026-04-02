@@ -8,10 +8,19 @@
  * | uploadSecret      | If non-empty, uploads require header X-Upload-Token with this value. Downloads stay open. Leave '' for no upload password. |
  * | trustProxy        | 1 = trust X-Forwarded-* behind HTTPS reverse proxies. 0 if not behind a proxy. |
  * | port              | HTTP port; hosts often set process.env.PORT (see below). |
+ * | receivedDir       | Absolute path for uploads. Leave '' — server picks project `received/` locally, or OS temp on Vercel (read-only filesystem). Override with env RECEIVED_DIR. |
  */
 
 /** @type {string} */
 export const publicUrl = '';
+
+/**
+ * Fixed absolute path for uploads, or '' for automatic:
+ * - Local: ./received next to the project
+ * - Vercel: OS temp (e.g. /tmp/drop-received) — deploy bundle is read-only
+ * @type {string}
+ */
+export const receivedDir = '';
 
 /** @type {number} */
 export const fileTtlMinutes = 60;
