@@ -55,7 +55,7 @@
 
   <div class="box pc-only">
     <h2 style="margin-top:0">Create a room (PC)</h2>
-    <p class="muted" style="margin:0 0 0.75rem">Opens the host screen with QR and join link. Use the same site URL you deployed (set <code>PUBLIC_URL</code> on the server).</p>
+    <p class="muted" style="margin:0 0 0.75rem">Opens the host screen with QR and join link. If links show the wrong host when deployed, set <code>publicUrl</code> in <code>src/config.js</code>.</p>
     <button type="button" id="createBtn">Create room</button>
     <p id="err"></p>
   </div>
@@ -105,7 +105,7 @@
       let r = await fetch('/api/rooms', { method: 'POST', headers });
       let j = await r.json().catch(() => ({}));
       if (r.status === 401 && j.needToken) {
-        const p = window.prompt('Enter the server create password (CREATE_ROOM_SECRET). Leave empty if none.');
+        const p = window.prompt('Enter the create password (same as createRoomSecret in src/config.js). Leave empty if none.');
         if (p === null) throw new Error('Cancelled');
         if (p) {
           localStorage.setItem(LS_CREATE, p);

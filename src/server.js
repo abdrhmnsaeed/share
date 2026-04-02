@@ -13,14 +13,20 @@ import {
   purgeExpiredRooms,
   ROOM_TTL_MS,
 } from './rooms.js';
+import {
+  publicUrl as configPublicUrl,
+  createRoomSecret,
+  trustProxy,
+  port as configPort,
+  roomTtlMinutes,
+} from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const receivedDir = path.join(root, 'received');
 const publicDir = path.join(root, 'public');
 
-const PORT = Number(process.env.PORT) || 8742;
-const CREATE_ROOM_SECRET = process.env.CREATE_ROOM_SECRET || '';
+const PORT = configPort;
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -39,9 +45,8 @@ function getLanIPv4s() {
 }
 
 function getPublicBaseUrl(req) {
-  const fromEnv = process.env.PUBLIC_URL;
-  if (fromEnv && typeof fromEnv === 'string') {
-    return fromEnv.replace(/\/$/, '');
+  if (configPublicUrl && typeof configPublicUrl === 'string') {
+    return configPublicUrl.replace(/\/$/, '');
   }
   const proto = req.get('x-forwarded-proto') || req.protocol || 'http';
   const host = req.get('x-forwarded-host') || req.get('host') || `localhost:${PORT}`;
@@ -117,12 +122,12 @@ const upload = multer({
 const MAX_TEXT_CHARS = 5 * 1024 * 1024;
 
 const app = express();
-app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+app.set('trust proxy', trustProxy);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
 
 app.post('/api/rooms', (req, res) => {
-  if (CREATE_ROOM_SECRET && req.headers['x-create-token'] !== CREATE_ROOM_SECRET) {
+  if (createRoomSecret && req.headers['x-create-token'] !== createRoomSecret) {
     return res.status(401).json({ error: 'Create not authorized', needToken: true });
   }
   const { roomId, secret } = createRoom();
@@ -409,9 +414,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('');
   console.log('  LAN Drop — http://0.0.0.0:' + PORT);
   console.log('  Home:  http://localhost:' + PORT + '/');
-  if (process.env.PUBLIC_URL) console.log('  PUBLIC_URL:', process.env.PUBLIC_URL);
-  console.log('  Room TTL:', Math.round(ROOM_TTL_MS / 60000), 'minutes');
-  if (CREATE_ROOM_SECRET) console.log('  CREATE_ROOM_SECRET: set (required for POST /api/rooms)');
+  if (configPublicUrl) console.log('  publicUrl (config):', configPublicUrl);
+  console.log('  Room TTL:', roomTtlMinutes, 'minutes');
+  if (createRoomSecret) console.log('  createRoomSecret: set (required for POST /api/rooms)');
   console.log('  Storage:', receivedDir);
   console.log('  Example LAN:', 'http://' + host + ':' + PORT + '/');
   console.log('');

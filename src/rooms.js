@@ -1,12 +1,12 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { roomTtlMinutes } from './config.js';
 
 /** @type {Map<string, { secret: string, createdAt: number }>} */
 const rooms = new Map();
 
-export const ROOM_TTL_MS =
-  Number(process.env.ROOM_TTL_MINUTES || 60) * 60 * 1000;
+export const ROOM_TTL_MS = roomTtlMinutes * 60 * 1000;
 
 export function createRoom() {
   const roomId = crypto.randomBytes(4).toString('hex');
