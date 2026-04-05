@@ -62,7 +62,7 @@
 </head>
 <body>
   <h1>Drop</h1>
-  <p class="muted">Paste text below — it appears in <strong>Clipboard</strong>. Upload files keep their names (renamed only if the name is already taken). Files list is separate from clipboard. Old data expires per <code>fileTtlMinutes</code> in <code>src/config.js</code>.</p>
+  <p class="muted">Everything is stored in <strong>MongoDB</strong> (shared across server instances). Paste text into <strong>Clipboard</strong>; uploads keep their filenames unless a name is already in use. Data is deleted after about <strong>1 hour</strong> (<code>fileTtlMinutes</code> in <code>src/config.js</code>).</p>
 
   <div class="box">
     <h2 style="margin-top:0">Install</h2>
